@@ -21,7 +21,19 @@ def _clean_text(raw_text: str) -> str:
     return re.sub(r"\s+", " ", raw_text).strip()
 
 
-def _extract_job_id(card: BeautifulSoup, job_link: str) -> str:
+def _canonicalize_job_link(job_link: str) -> str:
+    parsed_url = urlparse(job_link)
+    clean_path = re.sub(r"/+", "/", parsed_url.path).rstrip("/")
+    return f"{parsed_url.scheme}://{parsed_url.netloc}{clean_path}"
+
+
+def _extract_job_id(
+    card: BeautifulSoup,
+    job_link: str,
+    title: str,
+    company: str,
+    location: str,
+) -> str:
     urn_candidates = [
         card.get("data-entity-urn", ""),
         card.get("data-id", ""),
@@ -32,7 +44,7 @@ def _extract_job_id(card: BeautifulSoup, job_link: str) -> str:
         if match:
             return match.group(1)
 
-    link_match = re.search(r"/view/(\d{6,})", job_link)
+    link_match = re.search(r"/view/(?:[^/?#]+-)?(\d{6,})(?:[/?#]|$)", job_link)
     if link_match:
         return link_match.group(1)
 
@@ -41,7 +53,15 @@ def _extract_job_id(card: BeautifulSoup, job_link: str) -> str:
     if current_job_id:
         return current_job_id[0]
 
-    return hashlib.sha1(job_link.encode("utf-8")).hexdigest()[:16]
+    fallback_source = "|".join(
+        [
+            _canonicalize_job_link(job_link).lower(),
+            _clean_text(title).lower(),
+            _clean_text(company).lower(),
+            _clean_text(location).lower(),
+        ]
+    )
+    return hashlib.sha1(fallback_source.encode("utf-8")).hexdigest()[:16]
 
 
 def parse_job_cards(html_chunks: list[str]) -> list[JobPosting]:
@@ -70,16 +90,27 @@ def parse_job_cards(html_chunks: list[str]) -> list[JobPosting]:
             if not job_link:
                 continue
             job_link = urljoin("https://www.linkedin.com", job_link)
+            job_link = _canonicalize_job_link(job_link)
+
+            title = _clean_text(title_node.get_text(" ", strip=True) if title_node else "")
+            company = _clean_text(
+                company_node.get_text(" ", strip=True) if company_node else ""
+            )
+            location = _clean_text(
+                location_node.get_text(" ", strip=True) if location_node else ""
+            )
 
             job = JobPosting(
-                job_id=_extract_job_id(card, job_link),
-                title=_clean_text(title_node.get_text(" ", strip=True) if title_node else ""),
-                company=_clean_text(
-                    company_node.get_text(" ", strip=True) if company_node else ""
+                job_id=_extract_job_id(
+                    card=card,
+                    job_link=job_link,
+                    title=title,
+                    company=company,
+                    location=location,
                 ),
-                location=_clean_text(
-                    location_node.get_text(" ", strip=True) if location_node else ""
-                ),
+                title=title,
+                company=company,
+                location=location,
                 job_link=job_link,
             )
             parsed_jobs.append(job)

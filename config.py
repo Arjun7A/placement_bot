@@ -40,6 +40,8 @@ DETAIL_MIN_DELAY_SECONDS = float(os.getenv("DETAIL_MIN_DELAY_SECONDS", "1.5"))
 DETAIL_MAX_DELAY_SECONDS = float(os.getenv("DETAIL_MAX_DELAY_SECONDS", "3.0"))
 DETAIL_MAX_RETRIES = int(os.getenv("DETAIL_MAX_RETRIES", "2"))
 DETAIL_RETRY_BASE_SECONDS = float(os.getenv("DETAIL_RETRY_BASE_SECONDS", "6"))
+SEEN_JOB_IDS_FILE = os.getenv("SEEN_JOB_IDS_FILE", "seen_job_ids.json")
+SEEN_JOB_IDS_LIMIT = int(os.getenv("SEEN_JOB_IDS_LIMIT", "50000"))
 
 KEYWORDS = [
     "Python Developer Entry Level",

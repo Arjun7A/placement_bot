@@ -1,6 +1,8 @@
+import json
 import logging
 import random
 import time
+from pathlib import Path
 
 import requests
 
@@ -14,6 +16,8 @@ from config import (
     KEYWORDS,
     MATCH_THRESHOLD,
     REQUEST_TIMEOUT_SECONDS,
+    SEEN_JOB_IDS_FILE,
+    SEEN_JOB_IDS_LIMIT,
     SEARCH_MAX_DELAY_SECONDS,
     SEARCH_MAX_RETRIES,
     SEARCH_MIN_DELAY_SECONDS,
@@ -24,6 +28,41 @@ from job_parser import fetch_job_description, parse_job_cards
 from linkedin_fetcher import LinkedInFetcher
 from resume_filter import score_job_against_resume
 from telegram_sender import TelegramSender
+
+
+def load_seen_job_ids(file_path: str) -> set[str]:
+    store_path = Path(file_path)
+    if not store_path.exists():
+        return set()
+
+    try:
+        raw_data = json.loads(store_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logging.warning("Failed to read seen-job store '%s': %s", store_path, exc)
+        return set()
+
+    if not isinstance(raw_data, list):
+        logging.warning("Invalid seen-job store format in '%s'; expected JSON list", store_path)
+        return set()
+
+    return {str(item).strip() for item in raw_data if str(item).strip()}
+
+
+def save_seen_job_ids(file_path: str, seen_job_ids: set[str], max_items: int) -> None:
+    store_path = Path(file_path)
+    ids_to_store = sorted(seen_job_ids)
+    if max_items > 0 and len(ids_to_store) > max_items:
+        ids_to_store = ids_to_store[-max_items:]
+
+    tmp_path = store_path.with_suffix(f"{store_path.suffix}.tmp")
+    try:
+        tmp_path.write_text(
+            json.dumps(ids_to_store, ensure_ascii=True),
+            encoding="utf-8",
+        )
+        tmp_path.replace(store_path)
+    except OSError as exc:
+        logging.warning("Failed to write seen-job store '%s': %s", store_path, exc)
 
 
 def _retry_delay_seconds(
@@ -169,11 +208,16 @@ def main() -> None:
     logging.info("Keyword count: %d | Interval: %d seconds", len(KEYWORDS), FETCH_INTERVAL_SECONDS)
     logging.info(
         "Telegram configured: %s | chat_ids=%d",
-        str(bool(TELEGRAM_BOT_TOKEN and TELEGRAM_BOT_TOKEN != "<your_token_here>")).lower(),
+        str(bool(TELEGRAM_BOT_TOKEN)).lower(),
         len(TELEGRAM_CHAT_IDS),
     )
 
-    seen_job_ids: set[str] = set()
+    seen_job_ids = load_seen_job_ids(SEEN_JOB_IDS_FILE)
+    logging.info(
+        "Loaded %d seen job IDs from %s",
+        len(seen_job_ids),
+        SEEN_JOB_IDS_FILE,
+    )
     shared_session = requests.Session()
 
     fetcher = LinkedInFetcher(
@@ -196,6 +240,7 @@ def main() -> None:
     try:
         while True:
             cycle_start = time.time()
+            seen_count_before_cycle = len(seen_job_ids)
             logging.info("Starting new scan cycle")
 
             try:
@@ -213,6 +258,17 @@ def main() -> None:
                 )
             except Exception as exc:
                 logging.exception("Unexpected error in scan cycle: %s", exc)
+            finally:
+                if len(seen_job_ids) != seen_count_before_cycle:
+                    save_seen_job_ids(
+                        file_path=SEEN_JOB_IDS_FILE,
+                        seen_job_ids=seen_job_ids,
+                        max_items=SEEN_JOB_IDS_LIMIT,
+                    )
+                    logging.info(
+                        "Persisted seen-job store: %d IDs",
+                        len(seen_job_ids),
+                    )
 
             elapsed = time.time() - cycle_start
             sleep_seconds = max(0, FETCH_INTERVAL_SECONDS - elapsed)

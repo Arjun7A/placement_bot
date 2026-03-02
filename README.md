@@ -10,7 +10,7 @@ A headless Python bot that fetches same-day entry-level jobs from LinkedIn guest
 - Scores each job using resume skill matches.
 - Sends alerts only when `score > 0.2`.
 - Runs continuously every 20 minutes.
-- Deduplicates jobs in-memory by `job_id`.
+- Deduplicates jobs by stable `job_id` and persists seen IDs to disk.
 
 ## Project Structure
 
@@ -56,6 +56,8 @@ DETAIL_MIN_DELAY_SECONDS=1.5
 DETAIL_MAX_DELAY_SECONDS=3.0
 DETAIL_MAX_RETRIES=2
 DETAIL_RETRY_BASE_SECONDS=6
+SEEN_JOB_IDS_FILE=seen_job_ids.json
+SEEN_JOB_IDS_LIMIT=50000
 ```
 
 Notes:
@@ -66,6 +68,7 @@ Notes:
 - Search API calls are throttled with randomized delays and retries (`SEARCH_*` settings).
 - Detail-page fetch requests are throttled using `DETAIL_MIN_DELAY_SECONDS` and `DETAIL_MAX_DELAY_SECONDS`.
 - If LinkedIn returns `429`, retry backoff is controlled by `DETAIL_MAX_RETRIES` and `DETAIL_RETRY_BASE_SECONDS`.
+- Seen IDs are persisted in `SEEN_JOB_IDS_FILE` to avoid re-sending duplicates across restarts.
 - If env vars are missing, placeholders in `config.py` are used.
 
 ## Get Your Telegram Chat ID (`getUpdates`)
