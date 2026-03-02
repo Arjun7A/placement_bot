@@ -15,7 +15,7 @@ TELEGRAM_BOT_TOKEN = _clean_env_value(
     os.getenv("TELEGRAM_BOT_TOKEN", "<your_token_here>")
 )
 
-_chat_ids_env = os.getenv("CHAT_IDS", "<your_chat_id>")
+_chat_ids_env = os.getenv("TELEGRAM_CHAT_IDS", "<your_chat_id>")
 try:
     _chat_ids_parsed = json.loads(_chat_ids_env)
     if isinstance(_chat_ids_parsed, list):
