@@ -1,4 +1,3 @@
-import json
 import os
 
 from dotenv import load_dotenv
@@ -15,21 +14,17 @@ TELEGRAM_BOT_TOKEN = _clean_env_value(
     os.getenv("TELEGRAM_BOT_TOKEN", "")
 )
 
-_chat_ids_env = _clean_env_value(
-    os.getenv("TELEGRAM_CHAT_IDS", os.getenv("CHAT_IDS", ""))
-)
-try:
-    _chat_ids_parsed = json.loads(_chat_ids_env)
-    if isinstance(_chat_ids_parsed, list):
-        TELEGRAM_CHAT_IDS = [
-            str(chat_id).strip() for chat_id in _chat_ids_parsed if str(chat_id).strip()
-        ]
-    else:
-        TELEGRAM_CHAT_IDS = [
-            chat_id.strip() for chat_id in _chat_ids_env.split(",") if chat_id.strip()
-        ]
-except json.JSONDecodeError:
-    TELEGRAM_CHAT_IDS = [chat_id.strip() for chat_id in _chat_ids_env.split(",") if chat_id.strip()]
+def get_telegram_chat_ids() -> list[str]:
+    raw_value = os.getenv("TELEGRAM_CHAT_IDS", "")
+    chat_ids = [
+        chat_id.strip()
+        for chat_id in raw_value.split(",")
+        if chat_id.strip()
+    ]
+    return chat_ids
+
+
+TELEGRAM_CHAT_IDS = get_telegram_chat_ids()
 
 # Backward compatibility for existing imports.
 CHAT_IDS = TELEGRAM_CHAT_IDS
