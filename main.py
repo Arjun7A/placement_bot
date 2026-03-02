@@ -1,10 +1,15 @@
 import logging
+import random
 import time
 
 import requests
 
 from config import (
     CHAT_IDS,
+    DETAIL_MAX_DELAY_SECONDS,
+    DETAIL_MAX_RETRIES,
+    DETAIL_MIN_DELAY_SECONDS,
+    DETAIL_RETRY_BASE_SECONDS,
     FETCH_INTERVAL_SECONDS,
     KEYWORDS,
     MATCH_THRESHOLD,
@@ -15,6 +20,72 @@ from job_parser import fetch_job_description, parse_job_cards
 from linkedin_fetcher import LinkedInFetcher
 from resume_filter import score_job_against_resume
 from telegram_sender import TelegramSender
+
+
+def _retry_delay_seconds(
+    response: requests.Response | None,
+    attempt: int,
+) -> float:
+    if response is not None:
+        retry_after_header = response.headers.get("Retry-After", "").strip()
+        if retry_after_header:
+            try:
+                retry_after_seconds = float(retry_after_header)
+                if retry_after_seconds > 0:
+                    return retry_after_seconds
+            except ValueError:
+                pass
+
+    jitter_seconds = random.uniform(0.3, 1.2)
+    return DETAIL_RETRY_BASE_SECONDS * (2**attempt) + jitter_seconds
+
+
+def fetch_job_description_with_backoff(
+    session: requests.Session,
+    job_link: str,
+) -> str:
+    max_attempts = DETAIL_MAX_RETRIES + 1
+
+    for attempt in range(max_attempts):
+        try:
+            return fetch_job_description(
+                session=session,
+                job_link=job_link,
+                timeout_seconds=REQUEST_TIMEOUT_SECONDS,
+            )
+        except requests.HTTPError as exc:
+            response = exc.response
+            status_code = response.status_code if response is not None else None
+            if status_code == 429 and attempt < max_attempts - 1:
+                delay_seconds = _retry_delay_seconds(response, attempt)
+                logging.warning(
+                    "LinkedIn rate limit (429) for detail page. Retrying in %.1fs "
+                    "(attempt %d/%d)",
+                    delay_seconds,
+                    attempt + 1,
+                    max_attempts,
+                )
+                time.sleep(delay_seconds)
+                continue
+            raise
+        except requests.RequestException:
+            if attempt < max_attempts - 1:
+                delay_seconds = min(
+                    DETAIL_RETRY_BASE_SECONDS * (attempt + 1),
+                    15.0,
+                )
+                logging.warning(
+                    "Transient detail-page request failure. Retrying in %.1fs "
+                    "(attempt %d/%d)",
+                    delay_seconds,
+                    attempt + 1,
+                    max_attempts,
+                )
+                time.sleep(delay_seconds)
+                continue
+            raise
+
+    raise RuntimeError("Unreachable retry flow in fetch_job_description_with_backoff")
 
 
 def run_scan_cycle(
@@ -43,39 +114,43 @@ def run_scan_cycle(
         logging.info("Processing new job_id=%s | title=%s", job.job_id, job.title or "N/A")
 
         try:
-            job.description_text = fetch_job_description(
-                session,
-                job.job_link,
-                timeout_seconds=REQUEST_TIMEOUT_SECONDS,
-            )
+            job.description_text = fetch_job_description_with_backoff(session, job.job_link)
         except requests.RequestException as exc:
             logging.exception(
                 "Failed to fetch detail page for job_id=%s: %s",
                 job.job_id,
                 exc,
             )
-            continue
-
-        score, matched_skills = score_job_against_resume(job.description_text)
-        scanned_count += 1
-
-        if score > MATCH_THRESHOLD:
-            logging.info(
-                "Job passed filter: job_id=%s score=%.2f matched=%s",
-                job.job_id,
-                score,
-                matched_skills,
-            )
-            sender.send_job_alert(job, score, matched_skills)
-            alerted_count += 1
         else:
-            logging.info(
-                "Job rejected by filter: job_id=%s score=%.2f",
-                job.job_id,
-                score,
-            )
+            score, matched_skills = score_job_against_resume(job.description_text)
+            scanned_count += 1
 
-        seen_job_ids.add(job.job_id)
+            if score > MATCH_THRESHOLD:
+                logging.info(
+                    "Job passed filter: job_id=%s score=%.2f matched=%s",
+                    job.job_id,
+                    score,
+                    matched_skills,
+                )
+                sender.send_job_alert(job, score, matched_skills)
+                alerted_count += 1
+            else:
+                logging.info(
+                    "Job rejected by filter: job_id=%s score=%.2f",
+                    job.job_id,
+                    score,
+                )
+        finally:
+            seen_job_ids.add(job.job_id)
+            delay_seconds = random.uniform(
+                DETAIL_MIN_DELAY_SECONDS,
+                DETAIL_MAX_DELAY_SECONDS,
+            )
+            logging.debug(
+                "Sleeping %.2fs before next detail-page request",
+                delay_seconds,
+            )
+            time.sleep(delay_seconds)
 
     return scanned_count, alerted_count
 
