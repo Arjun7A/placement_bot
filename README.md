@@ -48,6 +48,10 @@ CHAT_IDS=["123456789","987654321"]
 FETCH_INTERVAL_SECONDS=1200
 MATCH_THRESHOLD=0.2
 REQUEST_TIMEOUT_SECONDS=20
+SEARCH_MIN_DELAY_SECONDS=2.5
+SEARCH_MAX_DELAY_SECONDS=4.0
+SEARCH_MAX_RETRIES=2
+SEARCH_RETRY_BASE_SECONDS=8
 DETAIL_MIN_DELAY_SECONDS=1.5
 DETAIL_MAX_DELAY_SECONDS=3.0
 DETAIL_MAX_RETRIES=2
@@ -57,6 +61,8 @@ DETAIL_RETRY_BASE_SECONDS=6
 Notes:
 - `CHAT_IDS` can be JSON list (`["123","456"]`) or comma-separated (`123,456`).
 - `FETCH_INTERVAL_SECONDS=1200` means 20 minutes.
+- `TELEGRAM_BOT_TOKEN` should be set without surrounding spaces and the service must be redeployed after changing vars.
+- Search API calls are throttled with randomized delays and retries (`SEARCH_*` settings).
 - Detail-page fetch requests are throttled using `DETAIL_MIN_DELAY_SECONDS` and `DETAIL_MAX_DELAY_SECONDS`.
 - If LinkedIn returns `429`, retry backoff is controlled by `DETAIL_MAX_RETRIES` and `DETAIL_RETRY_BASE_SECONDS`.
 - If env vars are missing, placeholders in `config.py` are used.

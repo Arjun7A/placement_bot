@@ -14,6 +14,10 @@ from config import (
     KEYWORDS,
     MATCH_THRESHOLD,
     REQUEST_TIMEOUT_SECONDS,
+    SEARCH_MAX_DELAY_SECONDS,
+    SEARCH_MAX_RETRIES,
+    SEARCH_MIN_DELAY_SECONDS,
+    SEARCH_RETRY_BASE_SECONDS,
     TELEGRAM_BOT_TOKEN,
 )
 from job_parser import fetch_job_description, parse_job_cards
@@ -163,6 +167,11 @@ def main() -> None:
 
     logging.info("Starting LinkedIn fresher job alert bot")
     logging.info("Keyword count: %d | Interval: %d seconds", len(KEYWORDS), FETCH_INTERVAL_SECONDS)
+    logging.info(
+        "Telegram configured: %s | chat_ids=%d",
+        str(bool(TELEGRAM_BOT_TOKEN and TELEGRAM_BOT_TOKEN != "<your_token_here>")).lower(),
+        len(CHAT_IDS),
+    )
 
     seen_job_ids: set[str] = set()
     shared_session = requests.Session()
@@ -170,8 +179,10 @@ def main() -> None:
     fetcher = LinkedInFetcher(
         keywords=KEYWORDS,
         location="India",
-        min_delay_seconds=1.0,
-        max_delay_seconds=2.0,
+        min_delay_seconds=SEARCH_MIN_DELAY_SECONDS,
+        max_delay_seconds=SEARCH_MAX_DELAY_SECONDS,
+        max_retries=SEARCH_MAX_RETRIES,
+        retry_base_seconds=SEARCH_RETRY_BASE_SECONDS,
         timeout_seconds=REQUEST_TIMEOUT_SECONDS,
         session=shared_session,
     )

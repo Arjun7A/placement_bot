@@ -6,7 +6,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "<your_token_here>")
+
+def _clean_env_value(value: str) -> str:
+    return value.strip().strip('"').strip("'")
+
+
+TELEGRAM_BOT_TOKEN = _clean_env_value(
+    os.getenv("TELEGRAM_BOT_TOKEN", "<your_token_here>")
+)
 
 _chat_ids_env = os.getenv("CHAT_IDS", "<your_chat_id>")
 try:
@@ -21,6 +28,10 @@ except json.JSONDecodeError:
 FETCH_INTERVAL_SECONDS = int(os.getenv("FETCH_INTERVAL_SECONDS", "1200"))
 REQUEST_TIMEOUT_SECONDS = int(os.getenv("REQUEST_TIMEOUT_SECONDS", "20"))
 MATCH_THRESHOLD = float(os.getenv("MATCH_THRESHOLD", "0.2"))
+SEARCH_MIN_DELAY_SECONDS = float(os.getenv("SEARCH_MIN_DELAY_SECONDS", "2.5"))
+SEARCH_MAX_DELAY_SECONDS = float(os.getenv("SEARCH_MAX_DELAY_SECONDS", "4.0"))
+SEARCH_MAX_RETRIES = int(os.getenv("SEARCH_MAX_RETRIES", "2"))
+SEARCH_RETRY_BASE_SECONDS = float(os.getenv("SEARCH_RETRY_BASE_SECONDS", "8"))
 DETAIL_MIN_DELAY_SECONDS = float(os.getenv("DETAIL_MIN_DELAY_SECONDS", "1.5"))
 DETAIL_MAX_DELAY_SECONDS = float(os.getenv("DETAIL_MAX_DELAY_SECONDS", "3.0"))
 DETAIL_MAX_RETRIES = int(os.getenv("DETAIL_MAX_RETRIES", "2"))
