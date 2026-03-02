@@ -5,7 +5,7 @@ import time
 import requests
 
 from config import (
-    CHAT_IDS,
+    TELEGRAM_CHAT_IDS,
     DETAIL_MAX_DELAY_SECONDS,
     DETAIL_MAX_RETRIES,
     DETAIL_MIN_DELAY_SECONDS,
@@ -170,7 +170,7 @@ def main() -> None:
     logging.info(
         "Telegram configured: %s | chat_ids=%d",
         str(bool(TELEGRAM_BOT_TOKEN and TELEGRAM_BOT_TOKEN != "<your_token_here>")).lower(),
-        len(CHAT_IDS),
+        len(TELEGRAM_CHAT_IDS),
     )
 
     seen_job_ids: set[str] = set()
@@ -188,7 +188,7 @@ def main() -> None:
     )
     sender = TelegramSender(
         bot_token=TELEGRAM_BOT_TOKEN,
-        chat_ids=CHAT_IDS,
+        chat_ids=TELEGRAM_CHAT_IDS,
         timeout_seconds=REQUEST_TIMEOUT_SECONDS,
         session=shared_session,
     )

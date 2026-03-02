@@ -12,18 +12,27 @@ def _clean_env_value(value: str) -> str:
 
 
 TELEGRAM_BOT_TOKEN = _clean_env_value(
-    os.getenv("TELEGRAM_BOT_TOKEN", "<your_token_here>")
+    os.getenv("TELEGRAM_BOT_TOKEN", "")
 )
 
-_chat_ids_env = os.getenv("TELEGRAM_CHAT_IDS", "<your_chat_id>")
+_chat_ids_env = _clean_env_value(
+    os.getenv("TELEGRAM_CHAT_IDS", os.getenv("CHAT_IDS", ""))
+)
 try:
     _chat_ids_parsed = json.loads(_chat_ids_env)
     if isinstance(_chat_ids_parsed, list):
-        CHAT_IDS = [str(chat_id).strip() for chat_id in _chat_ids_parsed if str(chat_id).strip()]
+        TELEGRAM_CHAT_IDS = [
+            str(chat_id).strip() for chat_id in _chat_ids_parsed if str(chat_id).strip()
+        ]
     else:
-        CHAT_IDS = [chat_id.strip() for chat_id in _chat_ids_env.split(",") if chat_id.strip()]
+        TELEGRAM_CHAT_IDS = [
+            chat_id.strip() for chat_id in _chat_ids_env.split(",") if chat_id.strip()
+        ]
 except json.JSONDecodeError:
-    CHAT_IDS = [chat_id.strip() for chat_id in _chat_ids_env.split(",") if chat_id.strip()]
+    TELEGRAM_CHAT_IDS = [chat_id.strip() for chat_id in _chat_ids_env.split(",") if chat_id.strip()]
+
+# Backward compatibility for existing imports.
+CHAT_IDS = TELEGRAM_CHAT_IDS
 
 FETCH_INTERVAL_SECONDS = int(os.getenv("FETCH_INTERVAL_SECONDS", "1200"))
 REQUEST_TIMEOUT_SECONDS = int(os.getenv("REQUEST_TIMEOUT_SECONDS", "20"))

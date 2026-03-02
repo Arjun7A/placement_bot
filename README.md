@@ -44,7 +44,7 @@ Create a `.env` file in `job_alert_bot/`:
 
 ```dotenv
 TELEGRAM_BOT_TOKEN=123456789:AA...
-CHAT_IDS=["123456789","987654321"]
+TELEGRAM_CHAT_IDS=123456789,987654321
 FETCH_INTERVAL_SECONDS=1200
 MATCH_THRESHOLD=0.2
 REQUEST_TIMEOUT_SECONDS=20
@@ -59,7 +59,8 @@ DETAIL_RETRY_BASE_SECONDS=6
 ```
 
 Notes:
-- `CHAT_IDS` can be JSON list (`["123","456"]`) or comma-separated (`123,456`).
+- Use `TELEGRAM_CHAT_IDS` in comma-separated format (example: `8034953168,5199201234`).
+- Backward compatibility: `CHAT_IDS` is still accepted.
 - `FETCH_INTERVAL_SECONDS=1200` means 20 minutes.
 - `TELEGRAM_BOT_TOKEN` should be set without surrounding spaces and the service must be redeployed after changing vars.
 - Search API calls are throttled with randomized delays and retries (`SEARCH_*` settings).
@@ -78,7 +79,7 @@ https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates
 ```
 
 4. Find `chat.id` in the JSON response.
-5. Put that value in `CHAT_IDS`.
+5. Put that value in `TELEGRAM_CHAT_IDS`.
 
 ## Run
 
