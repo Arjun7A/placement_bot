@@ -16,6 +16,7 @@ class LinkedInFetcher:
         self,
         keywords: Iterable[str],
         location: str = "India",
+        pages_per_keyword: int = 1,
         min_delay_seconds: float = 1.0,
         max_delay_seconds: float = 2.0,
         max_retries: int = 1,
@@ -25,6 +26,7 @@ class LinkedInFetcher:
     ) -> None:
         self.keywords = list(keywords)
         self.location = location
+        self.pages_per_keyword = max(1, pages_per_keyword)
         self.min_delay_seconds = min_delay_seconds
         self.max_delay_seconds = max_delay_seconds
         self.max_retries = max_retries
@@ -43,13 +45,13 @@ class LinkedInFetcher:
             }
         )
 
-    def _build_params(self, keyword: str) -> dict[str, str]:
+    def _build_params(self, keyword: str, start: int) -> dict[str, str]:
         return {
             "keywords": keyword,
             "location": self.location,
             "f_TPR": "r86400",
             "f_E": "2",
-            "start": "0",
+            "start": str(start),
         }
 
     def _retry_delay_seconds(
@@ -69,13 +71,13 @@ class LinkedInFetcher:
 
         return self.retry_base_seconds * (2**attempt) + random.uniform(0.3, 1.2)
 
-    def _fetch_keyword_html(self, keyword: str) -> str:
+    def _fetch_keyword_html(self, keyword: str, start: int) -> str:
         max_attempts = self.max_retries + 1
         for attempt in range(max_attempts):
             try:
                 response = self.session.get(
                     LINKEDIN_SEARCH_ENDPOINT,
-                    params=self._build_params(keyword),
+                    params=self._build_params(keyword, start),
                     timeout=self.timeout_seconds,
                 )
                 response.raise_for_status()
@@ -86,9 +88,10 @@ class LinkedInFetcher:
                 if status_code == 429 and attempt < max_attempts - 1:
                     delay_seconds = self._retry_delay_seconds(response, attempt)
                     logging.warning(
-                        "LinkedIn search rate limit (429) for keyword '%s'. "
+                        "LinkedIn search rate limit (429) for keyword '%s' (start=%d). "
                         "Retrying in %.1fs (attempt %d/%d)",
                         keyword,
+                        start,
                         delay_seconds,
                         attempt + 1,
                         max_attempts,
@@ -103,9 +106,10 @@ class LinkedInFetcher:
                         20.0,
                     ) + random.uniform(0.2, 1.0)
                     logging.warning(
-                        "Transient search request failure for keyword '%s'. "
+                        "Transient search request failure for keyword '%s' (start=%d). "
                         "Retrying in %.1fs (attempt %d/%d)",
                         keyword,
+                        start,
                         delay_seconds,
                         attempt + 1,
                         max_attempts,
@@ -116,26 +120,59 @@ class LinkedInFetcher:
 
         return ""
 
-    def fetch_first_page_html(self) -> List[str]:
+    def fetch_jobs_html(self) -> List[str]:
         html_chunks: List[str] = []
+        page_starts = [page_number * 25 for page_number in range(self.pages_per_keyword)]
 
-        for index, keyword in enumerate(self.keywords):
-            logging.info("Fetching jobs for keyword: %s", keyword)
-            try:
-                html = self._fetch_keyword_html(keyword)
-                if html:
-                    html_chunks.append(html)
-                    logging.info("Fetched HTML chunk for keyword: %s", keyword)
-                else:
-                    logging.warning("No jobs returned for keyword: %s", keyword)
-            except requests.RequestException as exc:
-                logging.exception("Failed fetch for keyword '%s': %s", keyword, exc)
+        for keyword_index, keyword in enumerate(self.keywords):
+            for page_index, start in enumerate(page_starts, start=1):
+                logging.info(
+                    "Fetching jobs for keyword: %s | page=%d start=%d",
+                    keyword,
+                    page_index,
+                    start,
+                )
+                try:
+                    html = self._fetch_keyword_html(keyword, start)
+                    if html:
+                        html_chunks.append(html)
+                        logging.info(
+                            "Fetched HTML chunk for keyword: %s | page=%d",
+                            keyword,
+                            page_index,
+                        )
+                    else:
+                        logging.warning(
+                            "No jobs returned for keyword: %s | page=%d",
+                            keyword,
+                            page_index,
+                        )
+                except requests.RequestException as exc:
+                    logging.exception(
+                        "Failed fetch for keyword '%s' | page=%d: %s",
+                        keyword,
+                        page_index,
+                        exc,
+                    )
 
-            if index < len(self.keywords) - 1:
+                is_last_request = (
+                    keyword_index == len(self.keywords) - 1
+                    and page_index == len(page_starts)
+                )
+                if is_last_request:
+                    continue
+
                 delay_seconds = random.uniform(
                     self.min_delay_seconds, self.max_delay_seconds
                 )
-                logging.debug("Sleeping %.2f seconds before next keyword", delay_seconds)
+                logging.debug(
+                    "Sleeping %.2f seconds before next search request",
+                    delay_seconds,
+                )
                 time.sleep(delay_seconds)
 
         return html_chunks
+
+    # Backward compatibility for existing call sites.
+    def fetch_first_page_html(self) -> List[str]:
+        return self.fetch_jobs_html()

@@ -6,9 +6,18 @@ resume_data: dict[str, Any] = {
         "Python",
         "Django",
         "Flask",
+        "FastAPI",
         "LangChain",
         "LLM",
         "SQL",
+        "PostgreSQL",
+        "MongoDB",
+        "Docker",
+        "Git",
+        "Linux",
+        "AWS",
+        "NLP",
+        "RAG",
         "Machine Learning",
         "YOLO",
         "Azure Cloud",
@@ -16,7 +25,7 @@ resume_data: dict[str, Any] = {
     ],
     "summary": (
         "Backend-focused AI developer experienced with Python, LLM applications, "
-        "and backend development."
+        "APIs, databases, and cloud-backed backend development."
     ),
 }
 

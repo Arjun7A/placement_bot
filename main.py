@@ -1,8 +1,6 @@
-import json
 import logging
 import random
 import time
-from pathlib import Path
 
 import requests
 
@@ -19,50 +17,17 @@ from config import (
     SEEN_JOB_IDS_FILE,
     SEEN_JOB_IDS_LIMIT,
     SEARCH_MAX_DELAY_SECONDS,
+    SEARCH_PAGES,
     SEARCH_MAX_RETRIES,
     SEARCH_MIN_DELAY_SECONDS,
     SEARCH_RETRY_BASE_SECONDS,
     TELEGRAM_BOT_TOKEN,
 )
+from job_store import JobIdStore
 from job_parser import fetch_job_description, parse_job_cards
 from linkedin_fetcher import LinkedInFetcher
 from resume_filter import score_job_against_resume
 from telegram_sender import TelegramSender
-
-
-def load_seen_job_ids(file_path: str) -> set[str]:
-    store_path = Path(file_path)
-    if not store_path.exists():
-        return set()
-
-    try:
-        raw_data = json.loads(store_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        logging.warning("Failed to read seen-job store '%s': %s", store_path, exc)
-        return set()
-
-    if not isinstance(raw_data, list):
-        logging.warning("Invalid seen-job store format in '%s'; expected JSON list", store_path)
-        return set()
-
-    return {str(item).strip() for item in raw_data if str(item).strip()}
-
-
-def save_seen_job_ids(file_path: str, seen_job_ids: set[str], max_items: int) -> None:
-    store_path = Path(file_path)
-    ids_to_store = sorted(seen_job_ids)
-    if max_items > 0 and len(ids_to_store) > max_items:
-        ids_to_store = ids_to_store[-max_items:]
-
-    tmp_path = store_path.with_suffix(f"{store_path.suffix}.tmp")
-    try:
-        tmp_path.write_text(
-            json.dumps(ids_to_store, ensure_ascii=True),
-            encoding="utf-8",
-        )
-        tmp_path.replace(store_path)
-    except OSError as exc:
-        logging.warning("Failed to write seen-job store '%s': %s", store_path, exc)
 
 
 def _retry_delay_seconds(
@@ -135,9 +100,9 @@ def run_scan_cycle(
     fetcher: LinkedInFetcher,
     sender: TelegramSender,
     session: requests.Session,
-    seen_job_ids: set[str],
+    seen_job_store: JobIdStore,
 ) -> tuple[int, int]:
-    html_chunks = fetcher.fetch_first_page_html()
+    html_chunks = fetcher.fetch_jobs_html()
     jobs = parse_job_cards(html_chunks)
     unique_jobs_by_id = {job.job_id: job for job in jobs}
 
@@ -151,9 +116,12 @@ def run_scan_cycle(
     alerted_count = 0
 
     for job in unique_jobs_by_id.values():
-        if job.job_id in seen_job_ids:
+        is_new_job = seen_job_store.add(job.job_id)
+        if not is_new_job:
+            logging.debug("Skipping already stored job_id=%s", job.job_id)
             continue
 
+        logging.info("Validated and stored new job_id=%s", job.job_id)
         logging.info("Processing new job_id=%s | title=%s", job.job_id, job.title or "N/A")
 
         try:
@@ -183,17 +151,16 @@ def run_scan_cycle(
                     job.job_id,
                     score,
                 )
-        finally:
-            seen_job_ids.add(job.job_id)
-            delay_seconds = random.uniform(
-                DETAIL_MIN_DELAY_SECONDS,
-                DETAIL_MAX_DELAY_SECONDS,
-            )
-            logging.debug(
-                "Sleeping %.2fs before next detail-page request",
-                delay_seconds,
-            )
-            time.sleep(delay_seconds)
+
+        delay_seconds = random.uniform(
+            DETAIL_MIN_DELAY_SECONDS,
+            DETAIL_MAX_DELAY_SECONDS,
+        )
+        logging.debug(
+            "Sleeping %.2fs before next detail-page request",
+            delay_seconds,
+        )
+        time.sleep(delay_seconds)
 
     return scanned_count, alerted_count
 
@@ -205,17 +172,25 @@ def main() -> None:
     )
 
     logging.info("Starting LinkedIn fresher job alert bot")
-    logging.info("Keyword count: %d | Interval: %d seconds", len(KEYWORDS), FETCH_INTERVAL_SECONDS)
+    logging.info(
+        "Keyword count: %d | Pages/keyword: %d | Interval: %d seconds",
+        len(KEYWORDS),
+        SEARCH_PAGES,
+        FETCH_INTERVAL_SECONDS,
+    )
     logging.info(
         "Telegram configured: %s | chat_ids=%d",
         str(bool(TELEGRAM_BOT_TOKEN)).lower(),
         len(TELEGRAM_CHAT_IDS),
     )
 
-    seen_job_ids = load_seen_job_ids(SEEN_JOB_IDS_FILE)
+    seen_job_store = JobIdStore(
+        file_path=SEEN_JOB_IDS_FILE,
+        max_items=SEEN_JOB_IDS_LIMIT,
+    )
     logging.info(
         "Loaded %d seen job IDs from %s",
-        len(seen_job_ids),
+        seen_job_store.size,
         SEEN_JOB_IDS_FILE,
     )
     shared_session = requests.Session()
@@ -223,6 +198,7 @@ def main() -> None:
     fetcher = LinkedInFetcher(
         keywords=KEYWORDS,
         location="India",
+        pages_per_keyword=SEARCH_PAGES,
         min_delay_seconds=SEARCH_MIN_DELAY_SECONDS,
         max_delay_seconds=SEARCH_MAX_DELAY_SECONDS,
         max_retries=SEARCH_MAX_RETRIES,
@@ -240,7 +216,6 @@ def main() -> None:
     try:
         while True:
             cycle_start = time.time()
-            seen_count_before_cycle = len(seen_job_ids)
             logging.info("Starting new scan cycle")
 
             try:
@@ -248,27 +223,16 @@ def main() -> None:
                     fetcher=fetcher,
                     sender=sender,
                     session=shared_session,
-                    seen_job_ids=seen_job_ids,
+                    seen_job_store=seen_job_store,
                 )
                 logging.info(
                     "Cycle complete | scanned=%d | alerted=%d | seen_total=%d",
                     scanned_count,
                     alerted_count,
-                    len(seen_job_ids),
+                    seen_job_store.size,
                 )
             except Exception as exc:
                 logging.exception("Unexpected error in scan cycle: %s", exc)
-            finally:
-                if len(seen_job_ids) != seen_count_before_cycle:
-                    save_seen_job_ids(
-                        file_path=SEEN_JOB_IDS_FILE,
-                        seen_job_ids=seen_job_ids,
-                        max_items=SEEN_JOB_IDS_LIMIT,
-                    )
-                    logging.info(
-                        "Persisted seen-job store: %d IDs",
-                        len(seen_job_ids),
-                    )
 
             elapsed = time.time() - cycle_start
             sleep_seconds = max(0, FETCH_INTERVAL_SECONDS - elapsed)
